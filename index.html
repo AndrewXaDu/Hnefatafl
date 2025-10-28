@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Micro-Hnefatafl from Mount and Blade II</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        .cell {
+            width: 60px;
+            height: 60px;
+            border: 1px solid #8b7355;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .cell:hover {
+            background-color: rgba(255, 215, 0, 0.3);
+        }
+        .cell.selected {
+            background-color: rgba(100, 200, 100, 0.5);
+            box-shadow: inset 0 0 10px rgba(0, 150, 0, 0.8);
+        }
+        .cell.valid-move {
+            background-color: rgba(100, 150, 255, 0.3);
+        }
+        .cell.center {
+            background-color: rgba(200, 150, 100, 0.4);
+            border: 2px solid #654321;
+        }
+        .cell.corner {
+            background-color: rgba(150, 150, 150, 0.3);
+        }
+        .piece {
+            user-select: none;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-amber-100 to-orange-200 min-h-screen flex items-center justify-center p-8">
+    <div class="max-w-7xl w-full">
+        <div class="text-center mb-6">
+            <h1 class="text-5xl font-bold text-amber-900 mb-2">Hnefatafl</h1>
+            <p class="text-lg text-amber-800">Viking Chess</p>
+        </div>
+
+        <div class="flex gap-8 items-start justify-center flex-wrap">
+            <!-- Game Board -->
+            <div class="bg-amber-50 p-6 rounded-xl shadow-2xl">
+                <div id="board" class="inline-block border-4 border-amber-900 rounded-lg overflow-hidden"></div>
+            </div>
+
+            <!-- Game Info Panel -->
+            <div class="bg-white p-6 rounded-xl shadow-xl max-w-md">
+                <div class="mb-6">
+                    <h2 class="text-2xl font-bold mb-2" id="turn-indicator">White's Turn (Defender)</h2>
+                    <div class="h-2 bg-gray-200 rounded-full">
+                        <div id="turn-bar" class="h-full bg-white rounded-full transition-all" style="width: 100%"></div>
+                    </div>
+                </div>
+
+                <div class="mb-6 p-4 bg-amber-50 rounded-lg">
+                    <h3 class="font-bold text-lg mb-2">📜 Rules</h3>
+                    <ul class="text-sm space-y-1 text-gray-700">
+                        <li>• <strong>White (Defender):</strong> Move king ♔ to any edge to win</li>
+                        <li>• <strong>Black (Attacker):</strong> Capture the king to win</li>
+                        <li>• Pieces move like rooks (horizontal/vertical)</li>
+                        <li>• Cannot jump over pieces or center square</li>
+                        <li>• Capture by pinching enemy between 2 pieces or piece + center</li>
+                        <li>• King cannot return to center once left</li>
+                    </ul>
+                </div>
+
+                <div class="mb-4">
+                    <h3 class="font-bold text-lg mb-2">Piece Count</h3>
+                    <div class="flex justify-between text-xl">
+                        <div>⚪ White: <span id="white-count">9</span></div>
+                        <div>⚫ Black: <span id="black-count">16</span></div>
+                    </div>
+                </div>
+
+                <div id="game-status" class="text-center p-3 rounded-lg bg-blue-100 text-blue-800 font-semibold hidden"></div>
+
+                <button id="reset-btn" class="w-full mt-4 bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 px-6 rounded-lg transition-colors">
+                    New Game
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const BOARD_SIZE = 9;
+        const CENTER = 4;
+        
+        // Piece types
+        const EMPTY = 0;
+        const WHITE_PAWN = 1;
+        const BLACK_PAWN = 2;
+        const WHITE_KING = 3;
+
+        let board = [];
+        let selectedCell = null;
+        let currentTurn = 'white'; // white starts
+        let kingLeftCenter = false;
+        let gameOver = false;
+
+        // Initialize the board
+        function initBoard() {
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(EMPTY));
+            
+            // Place white pieces (cross formation)
+            board[4][4] = WHITE_KING; // King at center
+            board[4][3] = WHITE_PAWN;
+            board[4][5] = WHITE_PAWN;
+            board[3][4] = WHITE_PAWN;
+            board[5][4] = WHITE_PAWN;
+            board[4][2] = WHITE_PAWN;
+            board[4][6] = WHITE_PAWN;
+            board[2][4] = WHITE_PAWN;
+            board[6][4] = WHITE_PAWN;
+
+            // Place black pieces (4 groups of 4)
+            // Top
+            board[0][3] = BLACK_PAWN;
+            board[0][4] = BLACK_PAWN;
+            board[0][5] = BLACK_PAWN;
+            board[1][4] = BLACK_PAWN;
+            
+            // Bottom
+            board[8][3] = BLACK_PAWN;
+            board[8][4] = BLACK_PAWN;
+            board[8][5] = BLACK_PAWN;
+            board[7][4] = BLACK_PAWN;
+            
+            // Left
+            board[3][0] = BLACK_PAWN;
+            board[4][0] = BLACK_PAWN;
+            board[5][0] = BLACK_PAWN;
+            board[4][1] = BLACK_PAWN;
+            
+            // Right
+            board[3][8] = BLACK_PAWN;
+            board[4][8] = BLACK_PAWN;
+            board[5][8] = BLACK_PAWN;
+            board[4][7] = BLACK_PAWN;
+
+            currentTurn = 'white';
+            kingLeftCenter = false;
+            gameOver = false;
+            selectedCell = null;
+        }
+
+        // Get piece symbol
+        function getPieceSymbol(piece) {
+            switch(piece) {
+                case WHITE_PAWN: return '⚪';
+                case BLACK_PAWN: return '⚫';
+                case WHITE_KING: return '♔';
+                default: return '';
+            }
+        }
+
+        // Render the board
+        function renderBoard() {
+            const boardElement = document.getElementById('board');
+            boardElement.innerHTML = '';
+            
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                const rowDiv = document.createElement('div');
+                rowDiv.style.display = 'flex';
+                
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = row;
+                    cell.dataset.col = col;
+                    
+                    // Mark center square
+                    if (row === CENTER && col === CENTER) {
+                        cell.classList.add('center');
+                    }
+                    
+                    // Mark corner squares (escape squares)
+                    if ((row === 0 && col === 0) || (row === 0 && col === 8) ||
+                        (row === 8 && col === 0) || (row === 8 && col === 8)) {
+                        cell.classList.add('corner');
+                    }
+                    
+                    const piece = board[row][col];
+                    if (piece !== EMPTY) {
+                        const pieceSpan = document.createElement('span');
+                        pieceSpan.className = 'piece';
+                        pieceSpan.textContent = getPieceSymbol(piece);
+                        cell.appendChild(pieceSpan);
+                    }
+                    
+                    cell.addEventListener('click', () => handleCellClick(row, col));
+                    rowDiv.appendChild(cell);
+                }
+                
+                boardElement.appendChild(rowDiv);
+            }
+            
+            updateUI();
+        }
+
+        // Check if a piece belongs to current player
+        function isCurrentPlayerPiece(piece) {
+            if (currentTurn === 'white') {
+                return piece === WHITE_PAWN || piece === WHITE_KING;
+            } else {
+                return piece === BLACK_PAWN;
+            }
+        }
+
+        // Check if path is clear (no jumping over pieces or center)
+        function isPathClear(fromRow, fromCol, toRow, toCol) {
+            const piece = board[fromRow][fromCol];
+            const isKing = piece === WHITE_KING;
+            
+            // Moving horizontally
+            if (fromRow === toRow) {
+                const start = Math.min(fromCol, toCol);
+                const end = Math.max(fromCol, toCol);
+                
+                for (let col = start + 1; col < end; col++) {
+                    // Check for other pieces
+                    if (board[fromRow][col] !== EMPTY) return false;
+                    
+                    // Check for center square
+                    if (fromRow === CENTER && col === CENTER) {
+                        // King can pass through center only if it hasn't left yet
+                        if (!isKing || kingLeftCenter) return false;
+                    }
+                }
+            }
+            // Moving vertically
+            else if (fromCol === toCol) {
+                const start = Math.min(fromRow, toRow);
+                const end = Math.max(fromRow, toRow);
+                
+                for (let row = start + 1; row < end; row++) {
+                    // Check for other pieces
+                    if (board[row][fromCol] !== EMPTY) return false;
+                    
+                    // Check for center square
+                    if (row === CENTER && fromCol === CENTER) {
+                        // King can pass through center only if it hasn't left yet
+                        if (!isKing || kingLeftCenter) return false;
+                    }
+                }
+            }
+            
+            return true;
+        }
+
+        // Get valid moves for a piece
+        function getValidMoves(row, col) {
+            const moves = [];
+            const piece = board[row][col];
+            const isKing = piece === WHITE_KING;
+            
+            // Check all four directions
+            const directions = [
+                [-1, 0], [1, 0], [0, -1], [0, 1] // up, down, left, right
+            ];
+            
+            for (const [dr, dc] of directions) {
+                let newRow = row + dr;
+                let newCol = col + dc;
+                
+                while (newRow >= 0 && newRow < BOARD_SIZE && newCol >= 0 && newCol < BOARD_SIZE) {
+                    // Cannot move to occupied square
+                    if (board[newRow][newCol] !== EMPTY) break;
+                    
+                    // Cannot move to center square (except king if it hasn't left)
+                    if (newRow === CENTER && newCol === CENTER) {
+                        if (!isKing || kingLeftCenter) break;
+                    }
+                    
+                    // Check if path is clear
+                    if (isPathClear(row, col, newRow, newCol)) {
+                        moves.push([newRow, newCol]);
+                    }
+                    
+                    newRow += dr;
+                    newCol += dc;
+                }
+            }
+            
+            return moves;
+        }
+
+        // Highlight valid moves
+        function highlightValidMoves(row, col) {
+            const moves = getValidMoves(row, col);
+            
+            moves.forEach(([r, c]) => {
+                const cell = document.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                if (cell) cell.classList.add('valid-move');
+            });
+        }
+
+        // Clear highlights
+        function clearHighlights() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('selected', 'valid-move');
+            });
+        }
+
+        // Check for captures after a move
+        function checkCaptures(row, col) {
+            const piece = board[row][col];
+            const isWhite = piece === WHITE_PAWN || piece === WHITE_KING;
+            
+            // Check all four adjacent positions
+            const directions = [
+                [-1, 0], [1, 0], [0, -1], [0, 1]
+            ];
+            
+            for (const [dr, dc] of directions) {
+                const adjRow = row + dr;
+                const adjCol = col + dc;
+                
+                // Check if adjacent cell is within bounds
+                if (adjRow < 0 || adjRow >= BOARD_SIZE || adjCol < 0 || adjCol >= BOARD_SIZE) {
+                    continue;
+                }
+                
+                const adjPiece = board[adjRow][adjCol];
+                
+                // Skip if empty or same color piece
+                if (adjPiece === EMPTY) continue;
+                const adjIsWhite = adjPiece === WHITE_PAWN || adjPiece === WHITE_KING;
+                if (adjIsWhite === isWhite) continue;
+                
+                // Cannot capture king with simple pinch (needs 4 pieces around)
+                if (adjPiece === WHITE_KING) continue;
+                
+                // Check opposite side for pinch
+                const oppRow = adjRow + dr;
+                const oppCol = adjCol + dc;
+                
+                let canCapture = false;
+                
+                // Check if pinched against board edge
+                if (oppRow < 0 || oppRow >= BOARD_SIZE || oppCol < 0 || oppCol >= BOARD_SIZE) {
+                    canCapture = false; // edges don't capture in this variant
+                }
+                // Check if pinched against center square
+                else if (oppRow === CENTER && oppCol === CENTER) {
+                    canCapture = true;
+                }
+                // Check if pinched against friendly piece
+                else {
+                    const oppPiece = board[oppRow][oppCol];
+                    if (oppPiece !== EMPTY) {
+                        const oppIsWhite = oppPiece === WHITE_PAWN || oppPiece === WHITE_KING;
+                        if (oppIsWhite === isWhite) {
+                            canCapture = true;
+                        }
+                    }
+                }
+                
+                if (canCapture) {
+                    board[adjRow][adjCol] = EMPTY;
+                }
+            }
+        }
+
+        // Check if king is captured (needs to be surrounded on all 4 sides)
+        function checkKingCapture() {
+            // Find king position
+            let kingRow = -1, kingCol = -1;
+            
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] === WHITE_KING) {
+                        kingRow = r;
+                        kingCol = c;
+                        break;
+                    }
+                }
+                if (kingRow !== -1) break;
+            }
+            
+            if (kingRow === -1) return true; // King not found = captured
+            
+            // King on center square needs 4 attackers
+            if (kingRow === CENTER && kingCol === CENTER) {
+                const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                let attackerCount = 0;
+                
+                for (const [dr, dc] of directions) {
+                    const r = kingRow + dr;
+                    const c = kingCol + dc;
+                    if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+                        if (board[r][c] === BLACK_PAWN) {
+                            attackerCount++;
+                        }
+                    }
+                }
+                
+                return attackerCount === 4;
+            }
+            
+            // King next to center needs 3 attackers
+            const isNextToCenter = Math.abs(kingRow - CENTER) + Math.abs(kingCol - CENTER) === 1;
+            if (isNextToCenter) {
+                const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                let surroundCount = 0;
+                
+                for (const [dr, dc] of directions) {
+                    const r = kingRow + dr;
+                    const c = kingCol + dc;
+                    
+                    if ((r === CENTER && c === CENTER) || 
+                        (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === BLACK_PAWN)) {
+                        surroundCount++;
+                    }
+                }
+                
+                return surroundCount >= 3;
+            }
+            
+            // Elsewhere on the board: captured if flanked horizontally (left+right)
+            // or vertically (up+down). Keep full-surround (4 attackers) as fallback.
+            const leftIsAttacker = kingCol - 1 >= 0 && board[kingRow][kingCol - 1] === BLACK_PAWN;
+            const rightIsAttacker = kingCol + 1 < BOARD_SIZE && board[kingRow][kingCol + 1] === BLACK_PAWN;
+            const upIsAttacker = kingRow - 1 >= 0 && board[kingRow - 1][kingCol] === BLACK_PAWN;
+            const downIsAttacker = kingRow + 1 < BOARD_SIZE && board[kingRow + 1][kingCol] === BLACK_PAWN;
+
+            // Horizontal or vertical flank capture
+            if ((leftIsAttacker && rightIsAttacker) || (upIsAttacker && downIsAttacker)) {
+                return true;
+            }
+
+            // Fallback: require all four orthogonal attackers (original behaviour)
+            const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            let surrounded = true;
+            
+            for (const [dr, dc] of directions) {
+                const r = kingRow + dr;
+                const c = kingCol + dc;
+
+                if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) {
+                    surrounded = false;
+                    break;
+                }
+
+                if (board[r][c] !== BLACK_PAWN) {
+                    surrounded = false;
+                    break;
+                }
+            }
+
+            return surrounded;
+        }
+
+        // Check win conditions
+        function checkWinConditions() {
+            // Check if white king reached edge
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] === WHITE_KING) {
+                        if (r === 0 || r === 8 || c === 0 || c === 8) {
+                            endGame('White (Defender) wins! King reached the edge!');
+                            return true;
+                        }
+                    }
+                }
+            }
+            
+            // Check if king is captured
+            if (checkKingCapture()) {
+                endGame('Black (Attacker) wins! King is captured!');
+                return true;
+            }
+            
+            return false;
+        }
+
+        // End game
+        function endGame(message) {
+            gameOver = true;
+            const statusElement = document.getElementById('game-status');
+            statusElement.textContent = message;
+            statusElement.classList.remove('hidden', 'bg-blue-100', 'text-blue-800', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
+            
+            if (message.includes('White')) {
+                statusElement.classList.add('bg-green-100', 'text-green-800');
+            } else {
+                statusElement.classList.add('bg-red-100', 'text-red-800');
+            }
+        }
+
+        // Handle cell click
+        function handleCellClick(row, col) {
+            if (gameOver) return;
+            
+            const piece = board[row][col];
+            
+            // If a piece is already selected
+            if (selectedCell) {
+                const [selectedRow, selectedCol] = selectedCell;
+                
+                // Try to move
+                const validMoves = getValidMoves(selectedRow, selectedCol);
+                const isValidMove = validMoves.some(([r, c]) => r === row && c === col);
+                
+                if (isValidMove) {
+                    // Track if king left center
+                    if (board[selectedRow][selectedCol] === WHITE_KING && 
+                        (selectedRow !== CENTER || selectedCol !== CENTER) &&
+                        (row !== CENTER || col !== CENTER)) {
+                        kingLeftCenter = true;
+                    }
+                    
+                    // Make the move
+                    board[row][col] = board[selectedRow][selectedCol];
+                    board[selectedRow][selectedCol] = EMPTY;
+                    
+                    // Check for captures
+                    checkCaptures(row, col);
+                    
+                    // Check win conditions
+                    if (!checkWinConditions()) {
+                        // Switch turn
+                        currentTurn = currentTurn === 'white' ? 'black' : 'white';
+                    }
+                    
+                    selectedCell = null;
+                    clearHighlights();
+                    renderBoard();
+                } else if (isCurrentPlayerPiece(piece)) {
+                    // Select different piece of same color
+                    selectedCell = [row, col];
+                    clearHighlights();
+                    const cell = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+                    cell.classList.add('selected');
+                    highlightValidMoves(row, col);
+                } else {
+                    // Deselect
+                    selectedCell = null;
+                    clearHighlights();
+                }
+            } else {
+                // Select a piece
+                if (isCurrentPlayerPiece(piece)) {
+                    selectedCell = [row, col];
+                    const cell = document.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+                    cell.classList.add('selected');
+                    highlightValidMoves(row, col);
+                }
+            }
+        }
+
+        // Update UI
+        function updateUI() {
+            const turnIndicator = document.getElementById('turn-indicator');
+            const turnBar = document.getElementById('turn-bar');
+            
+            if (gameOver) {
+                turnIndicator.textContent = 'Game Over';
+            } else {
+                turnIndicator.textContent = currentTurn === 'white' 
+                    ? "White's Turn (Defender)" 
+                    : "Black's Turn (Attacker)";
+            }
+            
+            turnBar.style.width = currentTurn === 'white' ? '100%' : '100%';
+            turnBar.className = currentTurn === 'white' 
+                ? 'h-full bg-white rounded-full transition-all border-2 border-gray-400' 
+                : 'h-full bg-gray-800 rounded-full transition-all';
+            
+            // Count pieces
+            let whiteCount = 0, blackCount = 0;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] === WHITE_PAWN || board[r][c] === WHITE_KING) whiteCount++;
+                    if (board[r][c] === BLACK_PAWN) blackCount++;
+                }
+            }
+            
+            document.getElementById('white-count').textContent = whiteCount;
+            document.getElementById('black-count').textContent = blackCount;
+        }
+
+        // Reset game
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            initBoard();
+            renderBoard();
+            document.getElementById('game-status').classList.add('hidden');
+        });
+
+        // Initialize game
+        initBoard();
+        renderBoard();
+    </script>
+</body>
+</html>
