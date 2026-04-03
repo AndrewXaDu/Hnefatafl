@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hnefatafl v3 - Viking Chess (11x11)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        .cell {
+            width: 48px;
+            height: 48px;
+            border: 1px solid #8b7355;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .cell:hover { background-color: rgba(255, 215, 0, 0.3); }
+        .cell.selected {
+            background-color: rgba(100, 200, 100, 0.5);
+            box-shadow: inset 0 0 10px rgba(0, 150, 0, 0.8);
+        }
+        .cell.valid-move { background-color: rgba(100, 150, 255, 0.3); }
+        .cell.center {
+            background-color: rgba(200, 150, 100, 0.4);
+            border: 2px solid #654321;
+        }
+        .cell.corner {
+            background-color: rgba(180, 140, 100, 0.5);
+            border: 2px solid #8B6914;
+        }
+        .piece { user-select: none; pointer-events: none; }
+        .pulse { animation: pulse 1s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-amber-100 to-orange-200 min-h-screen flex items-center justify-center p-4">
+    <div class="max-w-7xl w-full">
+        <div class="text-center mb-4">
+            <h1 class="text-4xl font-bold text-amber-900 mb-1">Hnefatafl v3</h1>
+            <p class="text-base text-amber-800">Viking Chess - 11x11 with AI</p>
+        </div>
+
+        <div id="mode-selection" class="text-center mb-4">
+            <div class="flex gap-4 justify-center flex-wrap">
+                <button id="btn-pvp" onclick="startGame('pvp')"
+                    class="px-8 py-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-lg transition-all shadow-lg">
+                    Player vs Player
+                </button>
+                <button id="btn-pvai" onclick="startGame('pvai')"
+                    class="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-lg transition-all shadow-lg">
+                    Player vs AI
+                </button>
+            </div>
+            <p id="mode-hint" class="mt-3 text-sm text-gray-500">Choose a game mode to start</p>
+        </div>
+
+        <div id="difficulty-selection" class="text-center mb-4 hidden">
+            <p class="mb-2 font-semibold text-gray-600">Select AI Difficulty:</p>
+            <div class="flex gap-3 justify-center flex-wrap">
+                <button onclick="setDifficulty('easy')"
+                    class="px-6 py-3 bg-green-500 hover:bg-green-600 text-white font-bold rounded-lg transition-all">
+                    Easy
+                </button>
+                <button onclick="setDifficulty('medium')"
+                    class="px-6 py-3 bg-yellow-500 hover:bg-yellow-600 text-white font-bold rounded-lg transition-all">
+                    Medium
+                </button>
+                <button onclick="setDifficulty('hard')"
+                    class="px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg transition-all">
+                    Hard
+                </button>
+            </div>
+            <p class="mt-2 text-xs text-gray-400">Easy: 1 move ahead | Medium: 2 moves | Hard: 3 moves</p>
+        </div>
+
+        <div id="color-selection" class="text-center mb-4 hidden">
+            <p class="mb-2 font-semibold text-gray-600">Choose your side:</p>
+            <div class="flex gap-4 justify-center">
+                <button onclick="setPlayerColor('defender')"
+                    class="px-8 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg transition-all text-lg">
+                    Defender (White) - Move first
+                </button>
+                <button onclick="setPlayerColor('attacker')"
+                    class="px-8 py-3 bg-gray-700 hover:bg-gray-800 text-white font-bold rounded-lg transition-all text-lg">
+                    Attacker (Black) - AI moves first
+                </button>
+            </div>
+        </div>
+
+        <div id="game-container" class="hidden">
+            <div class="flex gap-6 items-start justify-center flex-wrap">
+                <div class="bg-amber-50 p-4 rounded-xl shadow-2xl">
+                    <div id="board" class="inline-block border-4 border-amber-900 rounded-lg overflow-hidden"></div>
+                </div>
+                <div class="bg-white p-5 rounded-xl shadow-xl max-w-sm">
+                    <div class="mb-4">
+                        <h2 class="text-xl font-bold mb-2" id="turn-indicator">Defender's Turn</h2>
+                        <div id="ai-thinking" class="hidden text-sm text-red-500 font-semibold mb-1 pulse">
+                            AI is thinking...
+                        </div>
+                        <div class="h-2 bg-gray-200 rounded-full">
+                            <div id="turn-bar" class="h-full bg-amber-600 rounded-full transition-all" style="width: 100%"></div>
+                        </div>
+                    </div>
+                    <div class="mb-4 p-3 bg-amber-50 rounded-lg">
+                        <h3 class="font-bold text-base mb-1">Rules</h3>
+                        <ul class="text-xs space-y-0.5 text-gray-700">
+                            <li>- Defender: Move King to a corner to win</li>
+                            <li>- Attacker: Surround the King to win</li>
+                            <li>- All pieces move like rooks</li>
+                            <li>- Cannot jump over pieces</li>
+                            <li>- Warriors cannot stop on center/corners</li>
+                            <li>- Pinch capture: sandwich enemy warrior</li>
+                            <li>- Restricted squares act as pinch walls</li>
+                            <li>- Surround capture: 4 pieces around King</li>
+                        </ul>
+                    </div>
+                    <div class="mb-3">
+                        <h3 class="font-bold text-base mb-1">Piece Count</h3>
+                        <div class="flex justify-between text-lg">
+                            <div>Defender: <span id="white-count">13</span></div>
+                            <div>Attacker: <span id="black-count">24</span></div>
+                        </div>
+                    </div>
+                    <div id="game-status" class="text-center p-3 rounded-lg bg-blue-100 text-blue-800 font-semibold hidden"></div>
+                    <div class="flex gap-3 mt-3">
+                        <button id="undo-btn" onclick="undoMove()" 
+                            class="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-3 rounded-lg transition-colors text-sm" disabled>Undo</button>
+                        <button id="reset-btn" onclick="resetGame()" 
+                            class="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">New Game</button>
+                    </div>
+                    <div class="mt-3">
+                        <button onclick="backToMenu()" 
+                            class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition-colors text-sm">
+                            Back to Menu
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+// ==================== CONSTANTS ====================
+const BOARD_SIZE = 11;
+const CENTER = 5;
+const CORNERS = [[0,0],[0,10],[10,0],[10,10]];
+const EMPTY = 0, WARRIOR = 1, KING = 2, ATTACKER = -1;
+const DEPTHS = { easy: 1, medium: 2, hard: 3 };
+
+// ==================== GAME STATE ====================
+let board = [], selectedCell = null, gameOver = false, moveHistory = [];
+let gameMode = null, playerColor = null, aiDifficulty = null;
+let aiThinking = false, pendingAISide = null;
+let currentTurn = 'defender';
+
+// ==================== RESTRICTED SQUARES ====================
+function isRestricted(r, c) {
+    return (r === CENTER && c === CENTER) || isCorner(r, c);
+}
+function isCorner(r, c) {
+    return CORNERS.some(([cr, cc]) => cr === r && cc === c);
+}
+
+// ==================== BOARD UTILITIES ====================
+function copyBoard(b) { return b.map(row => row.slice()); }
+
+function pushHistory() {
+    moveHistory.push({ board: copyBoard(board), gameOver, currentTurn });
+    if (moveHistory.length > 200) moveHistory.shift();
+}
+
+function undoMove() {
+    if (moveHistory.length === 0 || gameOver || aiThinking) return;
+    const prev = moveHistory.pop();
+    board = copyBoard(prev.board);
+    gameOver = prev.gameOver;
+    currentTurn = prev.currentTurn;
+    selectedCell = null;
+    clearHighlights();
+    document.getElementById('game-status').classList.add('hidden');
+    document.getElementById('ai-thinking').classList.add('hidden');
+    renderBoard();
+}
+
+function initBoard() {
+    board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(EMPTY));
+    board[CENTER][CENTER] = KING;
+    [[CENTER,2],[CENTER,3],[CENTER,4],[CENTER,6],[CENTER,7],[CENTER,8],
+     [2,CENTER],[3,CENTER],[4,CENTER],[6,CENTER],[7,CENTER],[8,CENTER]].forEach(([r,c]) => board[r][c] = WARRIOR);
+    [[0,3],[0,4],[0,5],[0,6],[0,7],[1,5],[10,3],[10,4],[10,5],[10,6],[10,7],[9,5],
+     [3,0],[4,0],[5,0],[6,0],[7,0],[5,1],[3,10],[4,10],[5,10],[6,10],[7,10],[5,9]].forEach(([r,c]) => board[r][c] = ATTACKER);
+    selectedCell = null; gameOver = false; currentTurn = 'defender'; moveHistory = [];
+}
+
+// ==================== PIECE UTILITIES ====================
+function getPieceSymbol(p) {
+    if (p === WARRIOR) return '⛀';
+    if (p === KING) return '♔';
+    if (p === ATTACKER) return '⛂';
+    return '';
+}
+function isDefenderPiece(p) { return p === WARRIOR || p === KING; }
+function isAttackerPiece(p) { return p === ATTACKER; }
+function isAlly(a, b) { return (a > 0 && b > 0) || (a < 0 && b < 0); }
+function pieceOwner(p) { return p > 0 ? 'defender' : 'attacker'; }
+
+// ==================== MOVE GENERATION ====================
+function isPathClear(b, fr, fc, tr, tc) {
+    if (fr === tr) {
+        for (let c = Math.min(fc,tc)+1; c < Math.max(fc,tc); c++)
+            if (b[fr][c] !== EMPTY) return false;
+    } else {
+        for (let r = Math.min(fr,tr)+1; r < Math.max(fr,tr); r++)
+            if (b[r][fc] !== EMPTY) return false;
+    }
+    return true;
+}
+
+function getValidMovesOnBoard(b, row, col) {
+    const moves = [], piece = b[row][col], isKing = piece === KING;
+    if (piece === EMPTY) return moves;
+    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        let r = row + dr, c = col + dc;
+        while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+            if (b[r][c] !== EMPTY) break;
+            if (!isKing && isRestricted(r, c)) { r += dr; c += dc; continue; }
+            if (isKing && r === CENTER && c === CENTER) { r += dr; c += dc; continue; }
+            if (isPathClear(b, row, col, r, c)) moves.push([r, c]);
+            r += dr; c += dc;
+        }
+    }
+    return moves;
+}
+
+function getAllMoves(b, forSide) {
+    const moves = [];
+    for (let r = 0; r < BOARD_SIZE; r++)
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            const p = b[r][c];
+            if (p === EMPTY) continue;
+            if (pieceOwner(p) !== forSide) continue;
+            for (const [tr, tc] of getValidMovesOnBoard(b, r, c))
+                moves.push({ fromRow: r, fromCol: c, toRow: tr, toCol: tc, piece: p });
+        }
+    return moves;
+}
+
+// ==================== BOARD SIMULATION ====================
+function simulateMove(b, move) {
+    const nb = copyBoard(b);
+    nb[move.toRow][move.toCol] = move.piece;
+    nb[move.fromRow][move.fromCol] = EMPTY;
+    simulateCaptures(nb, move.toRow, move.toCol);
+    return nb;
+}
+
+function simulateCaptures(b, row, col) {
+    const movedPiece = b[row][col];
+    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const ar = row + dr, ac = col + dc;
+        if (ar < 0 || ar >= BOARD_SIZE || ac < 0 || ac >= BOARD_SIZE) continue;
+        const adjPiece = b[ar][ac];
+        if (adjPiece === EMPTY || adjPiece === KING || isAlly(movedPiece, adjPiece)) continue;
+        const opr = ar + dr, opc = ac + dc;
+        let captured = false;
+        if (opr < 0 || opr >= BOARD_SIZE || opc < 0 || opc >= BOARD_SIZE) captured = false;
+        else if (isRestricted(opr, opc)) captured = true;
+        else if (b[opr][opc] !== EMPTY && isAlly(movedPiece, b[opr][opc])) captured = true;
+        if (captured) b[ar][ac] = EMPTY;
+    }
+}
+
+function kingPosition(b) {
+    for (let r = 0; r < BOARD_SIZE; r++)
+        for (let c = 0; c < BOARD_SIZE; c++)
+            if (b[r][c] === KING) return [r, c];
+    return [-1, -1];
+}
+
+function countPieces(b) {
+    let defenders = 0, attackers = 0;
+    for (let r = 0; r < BOARD_SIZE; r++)
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            if (b[r][c] === WARRIOR || b[r][c] === KING) defenders++;
+            if (b[r][c] === ATTACKER) attackers++;
+        }
+    return { defenders, attackers };
+}
+
+// ==================== TERMINAL CHECKS ====================
+function kingCaptured(b) {
+    const [kr, kc] = kingPosition(b);
+    if (kr === -1) return true;
+    if (isCorner(kr, kc)) return false;
+    let attackers = 0, total = 0;
+    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const r = kr + dr, c = kc + dc;
+        total++;
+        if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) continue;
+        if (b[r][c] === ATTACKER) attackers++;
+    }
+    return attackers === total;
+}
+
+function kingOnCorner(b) {
+    const [kr, kc] = kingPosition(b);
+    return isCorner(kr, kc);
+}
+
+// ==================== EVALUATION FUNCTION ====================
+// POSITIVE = good for DEFENDER, NEGATIVE = good for ATTACKER
+function evaluate(b) {
+    if (kingCaptured(b)) return -10000;
+    if (kingOnCorner(b)) return +10000;
+
+    const [kr, kc] = kingPosition(b);
+    const { defenders, attackers } = countPieces(b);
+
+    let score = 0;
+
+    // 1. Material difference (normalized)
+    score += (defenders - attackers) * 15;
+
+    // 2. King distance to nearest corner (critical!)
+    let minCornerDist = Infinity;
+    for (const [cr, cc] of CORNERS)
+        minCornerDist = Math.min(minCornerDist, Math.abs(kr - cr) + Math.abs(kc - cc));
+    score += (10 - minCornerDist) * 80;
+
+    // 3. King freedom (how many adjacent cells are free)
+    let kingFreeDirs = 0;
+    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const r = kr + dr, c = kc + dc;
+        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && b[r][c] === EMPTY) kingFreeDirs++;
+    }
+    score += kingFreeDirs * 60;
+
+    // 4. Attacker pressure on king
+    let attackerPressure = 0;
+    for (let r = 0; r < BOARD_SIZE; r++)
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            if (b[r][c] !== ATTACKER) continue;
+            const dist = Math.abs(r - kr) + Math.abs(c - kc);
+            if (dist <= 2) attackerPressure += (3 - dist) * 15;
+        }
+    score -= attackerPressure;
+
+    // 5. Defender protection near king
+    let defenderProtection = 0;
+    for (let r = 0; r < BOARD_SIZE; r++)
+        for (let c = 0; c < BOARD_SIZE; c++) {
+            if (b[r][c] !== WARRIOR) continue;
+            const dist = Math.abs(r - kr) + Math.abs(c - kc);
+            if (dist <= 2) defenderProtection += (3 - dist) * 10;
+        }
+    score += defenderProtection;
+
+    // 6. Path blocking (attackers on approach to corners)
+    for (const [cr, cc] of CORNERS) {
+        const adjCells = [];
+        if (cr > 0) adjCells.push([cr-1, cc]);
+        if (cr < BOARD_SIZE-1) adjCells.push([cr+1, cc]);
+        if (cc > 0) adjCells.push([cr, cc-1]);
+        if (cc < BOARD_SIZE-1) adjCells.push([cr, cc+1]);
+        for (const [ar, ac] of adjCells) {
+            if (b[ar][ac] === ATTACKER) score -= 20;
+        }
+    }
+
+    // 7. King at edge
+    if (kr === 0 || kr === 10 || kc === 0 || kc === 10) score += 100;
+
+    return score;
+}
+
+// ==================== MINIMAX WITH ALPHA-BETA ====================
+let stopThinking = false;
+
+function minimax(b, depth, alpha, beta, maximizingForDefender) {
+    if (kingCaptured(b)) return maximizingForDefender ? -10000 : 10000;
+    if (kingOnCorner(b)) return maximizingForDefender ? 10000 : -10000;
+    if (depth === 0) return evaluate(b);
+
+    const side = maximizingForDefender ? 'defender' : 'attacker';
+    const moves = getAllMoves(b, side);
+    if (moves.length === 0) return maximizingForDefender ? -5000 : 5000;
+
+    if (maximizingForDefender) {
+        let maxEval = -Infinity;
+        for (const move of moves) {
+            if (stopThinking) return maxEval;
+            maxEval = Math.max(maxEval, minimax(simulateMove(b, move), depth - 1, alpha, beta, false));
+            alpha = Math.max(alpha, maxEval);
+            if (beta <= alpha) break;
+        }
+        return maxEval;
+    } else {
+        let minEval = Infinity;
+        for (const move of moves) {
+            if (stopThinking) return minEval;
+            minEval = Math.min(minEval, minimax(simulateMove(b, move), depth - 1, alpha, beta, true));
+            beta = Math.min(beta, minEval);
+            if (beta <= alpha) break;
+        }
+        return minEval;
+    }
+}
+
+function aiSelectMove() {
+    const depth = DEPTHS[aiDifficulty] || 2;
+    const aiSide = pendingAISide;
+    const maximizingForAI = (aiSide === 'defender');
+    const moves = getAllMoves(board, aiSide);
+    if (moves.length === 0) return null;
+
+    // Easy mode: 50% random
+    if (aiDifficulty === 'easy' && Math.random() < 0.5)
+        return moves[Math.floor(Math.random() * moves.length)];
+
+    let bestMove = moves[0];
+    let bestScore = maximizingForAI ? -Infinity : Infinity;
+    stopThinking = false;
+
+    for (const move of moves) {
+        if (stopThinking) break;
+        const score = minimax(simulateMove(board, move), depth - 1, -Infinity, Infinity, !maximizingForAI);
+        if (maximizingForAI) {
+            if (score > bestScore) { bestScore = score; bestMove = move; }
+        } else {
+            if (score < bestScore) { bestScore = score; bestMove = move; }
+        }
+    }
+    return bestMove;
+}
+
+// ==================== GAME LOGIC ====================
+function checkPinchCaptures(row, col) {
+    const movedPiece = board[row][col];
+    for (const [dr, dc] of [[-1,0],[1,0],[0,-1],[0,1]]) {
+        const ar = row + dr, ac = col + dc;
+        if (ar < 0 || ar >= BOARD_SIZE || ac < 0 || ac >= BOARD_SIZE) continue;
+        const adjPiece = board[ar][ac];
+        if (adjPiece === EMPTY || adjPiece === KING || isAlly(movedPiece, adjPiece)) continue;
+        const opr = ar + dr, opc = ac + dc;
+        let captured = false;
+        if (opr < 0 || opr >= BOARD_SIZE || opc < 0 || opc >= BOARD_SIZE) captured = false;
+        else if (isRestricted(opr, opc)) captured = true;
+        else if (board[opr][opc] !== EMPTY && isAlly(movedPiece, board[opr][opc])) captured = true;
+        if (captured) board[ar][ac] = EMPTY;
+    }
+}
+
+function checkWinConditions() {
+    for (let r = 0; r < BOARD_SIZE; r++)
+        for (let c = 0; c < BOARD_SIZE; c++)
+            if (board[r][c] === KING && isCorner(r, c)) {
+                endGame('Defender wins! King reached the corner!', true);
+                return true;
+            }
+    if (kingCaptured(board)) {
+        endGame('Attacker wins! King is surrounded!', false);
+        return true;
+    }
+    return false;
+}
+
+function endGame(msg, defenderWins) {
+    gameOver = true;
+    const el = document.getElementById('game-status');
+    el.textContent = msg;
+    el.className = 'text-center p-3 rounded-lg font-semibold ' + (defenderWins ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
+}
+
+function executeMove(fromRow, fromCol, toRow, toCol) {
+    pushHistory();
+    board[toRow][toCol] = board[fromRow][fromCol];
+    board[fromRow][fromCol] = EMPTY;
+    checkPinchCaptures(toRow, toCol);
+    if (!checkWinConditions())
+        currentTurn = currentTurn === 'defender' ? 'attacker' : 'defender';
+    selectedCell = null;
+    clearHighlights();
+    renderBoard();
+    if (gameMode === 'pvai' && !gameOver && currentTurn === pendingAISide)
+        triggerAI();
+}
+
+// ==================== UI HANDLERS ====================
+function handleCellClick(row, col) {
+    if (gameOver || aiThinking) return;
+    if (gameMode === 'pvai' && currentTurn !== playerColor) return;
+
+    const piece = board[row][col];
+
+    if (selectedCell) {
+        const [sr, sc] = selectedCell;
+        const valid = getValidMovesOnBoard(board, sr, sc).some(([r, c]) => r === row && c === col);
+        if (valid) executeMove(sr, sc, row, col);
+        else if ((currentTurn === 'defender' && isDefenderPiece(piece)) || 
+                 (currentTurn === 'attacker' && isAttackerPiece(piece))) {
+            selectedCell = [row, col];
+            clearHighlights();
+            document.querySelector('[data-row="' + row + '"][data-col="' + col + '"]').classList.add('selected');
+            for (const [r, c] of getValidMovesOnBoard(board, row, col)) {
+                const cell = document.querySelector('[data-row="' + r + '"][data-col="' + c + '"]');
+                if (cell) cell.classList.add('valid-move');
+            }
+        } else {
+            selectedCell = null;
+            clearHighlights();
+        }
+    } else if ((currentTurn === 'defender' && isDefenderPiece(piece)) || 
+               (currentTurn === 'attacker' && isAttackerPiece(piece))) {
+        selectedCell = [row, col];
+        document.querySelector('[data-row="' + row + '"][data-col="' + col + '"]').classList.add('selected');
+        for (const [r, c] of getValidMovesOnBoard(board, row, col)) {
+            const cell = document.querySelector('[data-row="' + r + '"][data-col="' + c + '"]');
+            if (cell) cell.classList.add('valid-move');
+        }
+    }
+}
+
+function clearHighlights() {
+    document.querySelectorAll('.cell').forEach(c => c.classList.remove('selected', 'valid-move'));
+}
+
+function triggerAI() {
+    aiThinking = true;
+    document.getElementById('ai-thinking').classList.remove('hidden');
+    setTimeout(() => {
+        const move = aiSelectMove();
+        aiThinking = false;
+        document.getElementById('ai-thinking').classList.add('hidden');
+        if (move) executeMove(move.fromRow, move.fromCol, move.toRow, move.toCol);
+        else endGame('AI has no moves! You win!', currentTurn === 'defender');
+    }, 50);
+}
+
+// ==================== UI RENDERING ====================
+function updateUI() {
+    const ti = document.getElementById('turn-indicator');
+    const tb = document.getElementById('turn-bar');
+    if (gameOver) {
+        ti.textContent = 'Game Over';
+        tb.style.width = '50%';
+        tb.className = 'h-full bg-gray-400 rounded-full';
+    } else {
+        const turnText = currentTurn === 'defender' ? "Defender's Turn" : "Attacker's Turn";
+        const isPlayer = gameMode !== 'pvai' || currentTurn === playerColor;
+        ti.textContent = isPlayer ? turnText : turnText + ' (AI)';
+        tb.style.width = '100%';
+        tb.className = currentTurn === 'defender' ? 'h-full bg-amber-600 rounded-full' : 'h-full bg-gray-800 rounded-full';
+    }
+    const { defenders, attackers } = countPieces(board);
+    document.getElementById('white-count').textContent = defenders;
+    document.getElementById('black-count').textContent = attackers;
+    document.getElementById('undo-btn').disabled = moveHistory.length === 0 || aiThinking;
+}
+
+function renderBoard() {
+    const el = document.getElementById('board');
+    el.innerHTML = '';
+    for (let row = 0; row < BOARD_SIZE; row++) {
+        const rd = document.createElement('div');
+        rd.style.display = 'flex';
+        for (let col = 0; col < BOARD_SIZE; col++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            cell.dataset.row = row;
+            cell.dataset.col = col;
+            if (row === CENTER && col === CENTER) cell.classList.add('center');
+            if (isCorner(row, col)) cell.classList.add('corner');
+            const p = board[row][col];
+            if (p !== EMPTY) {
+                const s = document.createElement('span');
+                s.className = 'piece';
+                s.textContent = getPieceSymbol(p);
+                cell.appendChild(s);
+            }
+            cell.addEventListener('click', () => handleCellClick(row, col));
+            rd.appendChild(cell);
+        }
+        el.appendChild(rd);
+    }
+    updateUI();
+}
+
+// ==================== GAME MODE ====================
+function startGame(mode) {
+    gameMode = mode;
+    document.getElementById('mode-selection').classList.add('hidden');
+    if (mode === 'pvai') {
+        document.getElementById('difficulty-selection').classList.remove('hidden');
+        document.getElementById('color-selection').classList.add('hidden');
+    } else {
+        document.getElementById('game-container').classList.remove('hidden');
+        initBoard();
+        renderBoard();
+    }
+}
+
+function setDifficulty(diff) {
+    aiDifficulty = diff;
+    document.getElementById('difficulty-selection').classList.add('hidden');
+    document.getElementById('color-selection').classList.remove('hidden');
+}
+
+function setPlayerColor(color) {
+    playerColor = color;
+    pendingAISide = color === 'defender' ? 'attacker' : 'defender';
+    currentTurn = 'defender';
+    document.getElementById('color-selection').classList.add('hidden');
+    document.getElementById('game-container').classList.remove('hidden');
+    initBoard();
+    renderBoard();
+    // If AI goes first (player chose attacker), trigger AI
+    if (pendingAISide === 'defender')
+        triggerAI();
+}
+
+function resetGame() {
+    initBoard();
+    moveHistory = [];
+    gameOver = false;
+    aiThinking = false;
+    currentTurn = 'defender';
+    document.getElementById('game-status').classList.add('hidden');
+    document.getElementById('ai-thinking').classList.add('hidden');
+    renderBoard();
+    if (gameMode === 'pvai' && pendingAISide === 'defender')
+        triggerAI();
+}
+
+function backToMenu() {
+    document.getElementById('game-container').classList.add('hidden');
+    document.getElementById('difficulty-selection').classList.add('hidden');
+    document.getElementById('color-selection').classList.add('hidden');
+    document.getElementById('mode-selection').classList.remove('hidden');
+    document.getElementById('mode-hint').textContent = 'Choose a game mode to start';
+    gameMode = null; playerColor = null; aiDifficulty = null;
+}
+
+// Initialize
+initBoard();
+    </script>
+</body>
+</html>
